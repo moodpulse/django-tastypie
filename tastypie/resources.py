@@ -30,7 +30,6 @@ except ImportError:
         ReverseOneToOneDescriptor
 
 from django.http import HttpResponse, HttpResponseNotFound, Http404
-from django.utils import six
 from django.utils.cache import patch_cache_control, patch_vary_headers
 from django.utils.html import escape
 from django.views.decorators.csrf import csrf_exempt
@@ -119,10 +118,7 @@ class ResourceOptions(object):
         if overrides.get('detail_allowed_methods', None) is None:
             overrides['detail_allowed_methods'] = allowed_methods
 
-        if six.PY3:
-            return object.__new__(type('ResourceOptions', (cls,), overrides))
-        else:
-            return object.__new__(type(b'ResourceOptions', (cls,), overrides))
+        return object.__new__(type('ResourceOptions', (cls,), overrides))
 
 
 class DeclarativeMetaclass(type):
@@ -180,8 +176,18 @@ class DeclarativeMetaclass(type):
 
         return new_class
 
+def with_metaclass(meta, *bases):
+    """Create a base class with a metaclass."""
+    # This requires a bit of explanation: the basic idea is to make a dummy
+    # metaclass for one level of class instantiation that replaces itself with
+    # the actual metaclass.
+    class metaclass(meta):
 
-class Resource(six.with_metaclass(DeclarativeMetaclass)):
+        def __new__(cls, name, this_bases, d):
+            return meta(name, bases, d)
+    return type.__new__(metaclass, 'temporary_class', (), {})
+
+class Resource(with_metaclass(DeclarativeMetaclass)):
     """
     Handles the data, request dispatch and responding to requests.
 
@@ -295,18 +301,13 @@ class Resource(six.with_metaclass(DeclarativeMetaclass)):
 
     def _handle_500(self, request, exception):
         the_trace = traceback.format_exception(*sys.exc_info())
-        if six.PY2:
-            the_trace = [
-                six.text_type(line, 'utf-8')
-                for line in the_trace
-            ]
         the_trace = u'\n'.join(the_trace)
 
         response_class = self.get_response_class_for_exception(request, exception)
 
         if settings.DEBUG:
             data = {
-                "error_message": sanitize(six.text_type(exception)),
+                "error_message": sanitize(str(exception)),
                 "traceback": the_trace,
             }
         else:
@@ -2517,7 +2518,7 @@ class BaseModelResource(Resource):
             # Get the manager.
             related_mngr = None
 
-            if isinstance(field_object.attribute, six.string_types):
+            if isinstance(field_object.attribute, str):
                 related_mngr = getattr(bundle.obj, field_object.attribute)
             elif callable(field_object.attribute):
                 related_mngr = field_object.attribute(bundle)
@@ -2552,7 +2553,7 @@ class BaseModelResource(Resource):
             related_mngr.add(*related_objs)
 
 
-class ModelResource(six.with_metaclass(ModelDeclarativeMetaclass, BaseModelResource)):
+class ModelResource(with_metaclass(ModelDeclarativeMetaclass, BaseModelResource)):
     pass
 
 
